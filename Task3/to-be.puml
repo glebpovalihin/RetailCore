@@ -1,0 +1,132 @@
+@startuml RetailCore_TO-BE
+!theme plain
+skinparam packageStyle rectangle
+skinparam componentStyle rectangle
+skinparam shadowing false
+skinparam wrapWidth 220
+skinparam maxMessageSize 220
+
+skinparam rectangle {
+  BorderColor #555555
+  BackgroundColor #FFFFFF
+}
+skinparam component {
+  BackgroundColor #F8F8F8
+}
+skinparam database {
+  BackgroundColor #FFF4CC
+}
+skinparam queue {
+  BackgroundColor #EAF4FF
+}
+skinparam note {
+  FontSize 10
+}
+
+skinparam component<<new>> {
+  BorderColor #009900
+  BackgroundColor #D5E8D4
+  FontStyle bold
+}
+skinparam database<<new>> {
+  BorderColor #009900
+  BackgroundColor #D5E8D4
+  FontStyle bold
+}
+
+actor "Клиент" as Customer
+actor "Оператор\nподдержки" as Support
+actor "Бизнес-\nпользователи" as BusinessUsers
+
+cloud "Маркетплейсы" as Marketplaces
+cloud "Платёжные\nпровайдеры" as PaymentProviders
+cloud "Службы\nдоставки" as DeliveryPartners
+cloud "BI / Отчёты" as BI
+
+rectangle "RetailCore TO-BE" as RetailCore {
+
+  component "Интернет-магазин\nи мобильные каналы" as Channels
+
+  package "Java-монолит\n(уменьшенна зона)" as JavaMonolith {
+    component "Checkout Core" as OrderApi
+    component "Обработка\nзаказа" as Processing
+    component "Платёжная оркестрация" as PaymentOrchestration
+    component "Маршрутизация\nдоставки" as DeliveryRouting
+  }
+
+  component "Сервис состояния заказа" as StatusService <<new>>
+  component "Сервис расчёта цены" as PricingService <<new>>
+  component "Интеграционный шлюз" as IntegrationGateway <<new>>
+  queue "Поток событий" as EventStream
+
+  database "Oracle DB\n(операционные данные)" as Oracle
+  database "Аналитическое\nхранилище OLAP" as AnalyticsStore <<new>>
+
+  component "Инструменты\nподдержки" as AdminTools
+
+  component ".NET сервис\nинтеграций" as DotNet
+  component "Python\nаналитические выгрузки" as PyAnalytics
+}
+
+note right of StatusService
+  Единая логика переходов
+  Клиентские + тех. статусы
+  Traced-история изменений
+end note
+
+note right of PricingService
+  Унифицированный расчёт
+  Конфигурируемые правила
+end note
+
+note right of IntegrationGateway
+  Circuit breaker и retry
+  Аудит всех вызовов
+end note
+
+note right of AnalyticsStore
+  Каноническая модель заказа
+  Потоковая загрузка
+end note
+
+note bottom of Oracle
+  PL/SQL логика вынесена
+  Staging-таблицы убраны
+  Аналитика отделена
+end note
+
+
+Customer --> Channels : оформление,\nпросмотр статуса
+
+Channels --> OrderApi : создание/обновление заказа
+
+Marketplaces --> OrderApi : заказы, статусы
+
+OrderApi --> Processing : создание заказа
+OrderApi --> PricingService : расчёт цены
+Processing --> PaymentOrchestration : инициировать оплату
+Processing --> DeliveryRouting : выбрать доставку
+
+PaymentOrchestration --> PaymentProviders : синхронный вызов
+
+Processing --> StatusService : вызов API
+Processing --> EventStream : публикация событий
+StatusService --> EventStream : публикация событий
+
+DeliveryRouting --> IntegrationGateway : запросы с применением стандартного протокола
+IntegrationGateway --> DeliveryPartners : ответ с применением единого контракт
+
+EventStream --> AnalyticsStore : потоковая загрузка
+
+DotNet --> IntegrationGateway : партнерские интеграции
+PyAnalytics --> AnalyticsStore : чтение из OLAP
+
+Processing --> Oracle : данные заказа (чтение/запись)
+
+AnalyticsStore --> BI : отчётные запросы
+BusinessUsers --> BI : управленческие отчёты
+
+Support --> AdminTools : разбор обращений
+AdminTools --> StatusService : запрос в API
+
+@enduml
