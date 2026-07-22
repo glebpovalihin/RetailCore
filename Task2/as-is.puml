@@ -1,0 +1,133 @@
+@startuml RetailCore_AS-IS
+!theme plain
+skinparam packageStyle rectangle
+skinparam componentStyle rectangle
+skinparam shadowing false
+skinparam wrapWidth 220
+skinparam maxMessageSize 220
+
+skinparam rectangle {
+  BorderColor #555555
+  BackgroundColor #FFFFFF
+}
+skinparam component {
+  BorderColor #555555
+  BackgroundColor #F8F8F8
+}
+skinparam database {
+  BorderColor #555555
+  BackgroundColor #FFF4CC
+}
+skinparam queue {
+  BorderColor #555555
+  BackgroundColor #EAF4FF
+}
+
+
+skinparam note {
+  BorderColor #CC0000
+  BackgroundColor #FFF0F0
+  FontColor #CC0000
+  FontSize 10
+}
+
+actor "Клиент" as Customer
+actor "Оператор\nподдержки" as Support
+actor "Бизнес-\nпользователи" as BusinessUsers
+
+cloud "Маркетплейсы" as Marketplaces
+cloud "Платёжные\nпровайдеры" as PaymentProviders
+cloud "Службы\nдоставки" as DeliveryPartners
+cloud "Внутренние BI / Отчёты" as BI
+
+rectangle "RetailCore AS-IS" as RetailCore {
+
+  component "Интернет-магазин\nи мобильные каналы" as Channels
+  package "Java-монолит\n(центральный контур)" as JavaMonolith {
+    component "Checkout /\nOrder API" as OrderApi
+    component "Обработка\nзаказа" as Processing
+    component "Расчёт цены\nи скидок" as Pricing
+
+
+    component "Управление\nстатусами" as Statuses
+    component "Платёжная\nоркестрация" as PaymentOrchestration
+    component "Маршрутизация\nдоставки" as DeliveryRouting
+  }
+
+  database "Oracle DB\n(операции +\nбизнес-логика +\nинтеграции)" as Oracle
+
+  package "Вспомогательные сервисы" as AuxServices {
+    component ".NET сервис\nинтеграций" as DotNet
+    component "Python\nаналитика" as PyAnalytics
+  }
+
+  queue "Асинхронный / Batch\nобмен" as AsyncLayer
+  component "Admin Tools \nИнструменты поддержки" as AdminTools
+}
+note right of PaymentOrchestration
+  Длинные транзакции
+  Нет graceful degradation
+end note
+
+note right of Pricing
+  Несколько механизмов расчёта
+  Fallback с разной логикой
+  Есть ветвления по каналам
+end note
+
+note right of Statuses
+  Логика разбросана по Java,
+  batch-процедурам
+  и ручным интерфейсам
+end note
+
+note right of DeliveryRouting
+  Правила: Java + конфиги +
+  таблицы Oracle + SQL-скрипты
+end note
+
+note bottom of Oracle
+  Бизнес-логика в PL/SQL
+  Аналитика конкурирует с OLTP
+  Staging-таблицы для интеграций
+  Большой объем данных (ТБ)
+end note
+
+note right of DotNet
+  Обмен через
+  staging-таблицы Oracle
+end note
+
+Customer --> Channels : оформление,\nпросмотр статуса
+Channels --> OrderApi : создание/обновление\nзаказа, синхронный вызов
+Marketplaces --> OrderApi : заказы,\nобновления,\nстатусы
+OrderApi --> Pricing : расчёт цены,\nскидок,\nпромо
+OrderApi --> Processing : создание и\nобработка заказа
+Processing --> PaymentOrchestration : инициировать оплату
+Processing --> DeliveryRouting : выбрать доставку
+
+PaymentOrchestration --> PaymentProviders : синхронный вызов,\nсоздание платёжной сессии
+DeliveryRouting --> DeliveryPartners : синхр./смеш. вызов,\nрезервирование доставки
+
+Pricing --> Oracle : правила,\nкоэффициенты,\nlegacy promo
+Processing --> Oracle : заказ,\nрезерв,\nслужебные таблицы
+Statuses --> Oracle : статусы,\nистория,\nтехнические состояния
+PaymentOrchestration --> Oracle : payment_session_id,\nтехнические атрибуты
+DeliveryRouting --> Oracle : правила маршрутизации,\nпартнёры,\nretry-состояния
+
+Processing --> AsyncLayer : события,\nзадания,\nвыгрузки
+AsyncLayer --> DotNet : обмен для части\nпартнёрских сценариев
+
+
+DotNet --> Oracle : staging/shared tables
+DotNet --> DeliveryPartners : партнёрские\nлогистические интеграции
+
+PyAnalytics --> Oracle : прямые выборки,\nвитрины,\nдолгие отчёты
+AsyncLayer --> PyAnalytics : batch/async данные
+Oracle --> BI : отчётные запросы
+BusinessUsers --> BI : управленческие отчёты
+Support --> AdminTools : разбор обращений,\nручные действия
+AdminTools --> Statuses : ручная проверка /\nкорректировка статусов
+AdminTools --> Oracle : просмотр технических\nатрибутов заказа
+
+@enduml
